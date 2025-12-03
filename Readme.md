@@ -42,7 +42,7 @@ CREATE INDEX movies_search_idx ON movies
   FROM movies
   WHERE movies @@@ '(title:lord OR title:king) AND genres:Fantasy';
 ```
-#### Create ParadeDB BM25 Index with Ratings (Not doing it for now)
+### Create ParadeDB BM25 Index with Ratings (Not doing it for now)
 
 Add average rating column to movies table for search integration:
 ```sql
