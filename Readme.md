@@ -1,43 +1,31 @@
 ### Ingestion
+```
 source ~/.venv/bin/activate
 export PGPASSWORD="your_password"
 python ingest_data.py --data-dir sample_data --batch-size 10000 \
   --db-host localhost --db-port 5432 --db-user postgres
-
+```
 ### Reading
-kubectl port-forward svc/paradedb-rw 5433:5432 -n ankit31-paradedb
+`kubectl port-forward svc/paradedb-rw 5433:5432 -n ankit31-paradedb`
 
 PSQL Connection:
-PGPASSWORD="wije1LG3VgSo5npDK3fcGpdQEu6OZJ7Cz1mjUUwSn2mgNPMjowikJm2cCYHOvLS8" psql -h localhost -p 5433 -U postgres -d postgres
-
-Or in separate steps:
-export PGPASSWORD="wije1LG3VgSo5npDK3fcGpdQEu6OZJ7Cz1mjUUwSn2mgNPMjowikJm2cCYHOvLS8"
-psql -h localhost -p 5433 -U postgres -d postgres
-
-Quick test query:
-SELECT table_name, COUNT(*) FROM (
-SELECT 'movies' as table_name, COUNT(*) FROM movies UNION ALL
-SELECT 'users', COUNT(*) FROM users UNION ALL
-SELECT 'ratings', COUNT(*) FROM ratings UNION ALL
-SELECT 'tags', COUNT(*) FROM tags
-) as counts ORDER BY table_name;
+`PGPASSWORD="wije1LG3VgSo5npDK3fcGpdQEu6OZJ7Cz1mjUUwSn2mgNPMjowikJm2cCYHOvLS8" psql -h localhost -p 5433 -U postgres -d postgres`
 
 ### ParadeDB Full-Text Search & Rating Integration
-SELECT paradedb.create_bm25(
-    index_name => 'movies_search_idx',
-    table_name => 'movies',
-    key_field => 'movie_id',
-    text_fields => '{title}',
-    numeric_fields => '{year,imdb_id,tmdb_id}',
-    array_fields => '{genres}'
-  );
+
+```
+CREATE INDEX movies_search_idx ON movies
+  USING bm25 (movie_id, title, year, imdb_id, tmdb_id, genres)
+  WITH (key_field='movie_id');
+```
 
   🎯 Search Query Examples:
 
+```
   Basic title search:
   SELECT movie_id, title, year, genres
   FROM movies
-  WHERE movies @@@ 'dark knight';
+  WHERE movies @@@ '"dark knight"';
 
   Genre filtering:
   SELECT movie_id, title, year, genres
@@ -53,13 +41,8 @@ SELECT paradedb.create_bm25(
   SELECT movie_id, title, year, genres
   FROM movies
   WHERE movies @@@ '(title:lord OR title:king) AND genres:Fantasy';
-
-#### Create ParadeDB BM25 Index with Ratings
-
-First, ensure ParadeDB pg_search extension is enabled:
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_search;
 ```
+#### Create ParadeDB BM25 Index with Ratings (Not doing it for now)
 
 Add average rating column to movies table for search integration:
 ```sql
