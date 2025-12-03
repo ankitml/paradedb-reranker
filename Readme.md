@@ -9,7 +9,7 @@ python ingest_data.py --data-dir sample_data --batch-size 10000 \
 `kubectl port-forward svc/paradedb-rw 5433:5432 -n ankit31-paradedb`
 
 PSQL Connection:
-`PGPASSWORD="wije1LG3VgSo5npDK3fcGpdQEu6OZJ7Cz1mjUUwSn2mgNPMjowikJm2cCYHOvLS8" psql -h localhost -p 5433 -U postgres -d postgres`
+`PGPASSWORD="<>" psql -h localhost -p 5433 -U postgres -d postgres`
 
 ### ParadeDB Full-Text Search & Rating Integration
 
