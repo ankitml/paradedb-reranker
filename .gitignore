@@ -37,7 +37,3 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
-
-# Data files
-*.csv.bak
-embeddings.csv
