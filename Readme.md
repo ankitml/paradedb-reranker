@@ -158,3 +158,74 @@ REFRESH MATERIALIZED VIEW CONCURRENTLY movie_stats;
 
 -- Or set up automatic refresh with triggers (see Option 2 in recommendations)
 ```
+
+## Test Users & Search Cases
+
+### Test Users Created
+
+#### Basic Test Users
+- **User 10001** (Fantasy Lover): 50 ratings, all 5.0 average for fantasy movies
+- **User 10002** (Fantasy Hater): 50 ratings, all 1.0 average for fantasy movies
+
+#### Extreme Test Users
+- **User 20001** (Extreme Fantasy Lover): 779 ratings, all 5.0 average for ALL fantasy movies
+- **User 20002** (Extreme Fantasy Hater): 779 ratings, all 1.0 average for ALL fantasy movies
+
+### Recommended Search Terms for Testing
+These search terms return 3-4 fantasy movies in the top 10 results:
+
+#### 1. "lord" ⭐ BEST FOR TESTING
+**Fantasy movies in top 10:**
+- Lord of the Rings, The (1978) 🧙‍♂️
+- Lord of the Rings: The Fellowship of the Ring (2001) 🧙‍♂️
+- Lord of the Rings: The Two Towers (2002) 🧙‍♂️
+- Lord of the Rings: The Return of the King (2003) 👑
+
+```sql
+SELECT movie_id, title, year, genres
+FROM movies
+WHERE movies @@@ 'title:lord'
+ORDER BY movie_id
+LIMIT 10;
+```
+
+#### 2. "king" ⭐ GOOD OPTION
+**Fantasy movies in top 10:**
+- Kid in King Arthur's Court (Fantasy) 🏰
+- Aladdin and the King of Thieves (Fantasy) 🧞‍♂️
+- King Kong (Fantasy) 🦍
+
+```sql
+SELECT movie_id, title, year, genres
+FROM movies
+WHERE movies @@@ 'title:king'
+ORDER BY movie_id
+LIMIT 10;
+```
+
+#### 3. "ring" ⭐ SIMPLE
+**Fantasy movies in results:**
+- Lord of the Rings: The Fellowship of the Ring (2001) 💍
+- The Magic Ring (1982) ✨
+
+```sql
+SELECT movie_id, title, year, genres
+FROM movies
+WHERE movies @@@ 'title:ring'
+ORDER BY movie_id
+LIMIT 10;
+```
+
+### Test Strategy
+1. **Use search term "lord"** - gives you 4 LOTR movies + 6 others
+2. **Test with User 10001** (Fantasy Lover) - LOTR movies should rank higher after personalized re-ranking
+3. **Test with User 10002** (Fantasy Hater) - LOTR movies should rank lower after personalized re-ranking
+4. **Test with User 20001** (Extreme Fantasy Lover) - Should show maximum preference boost for fantasy movies
+5. **Test with User 20002** (Extreme Fantasy Hater) - Should show maximum penalty for fantasy movies
+
+### Database Schema
+Users table now includes:
+- `user_id` (integer, primary key)
+- `created_at` (timestamp, default now())
+- `embedding` (vector(384)) - User preference embedding
+- `updated_at` (timestamp, default now()) - Last embedding update
