@@ -19,43 +19,42 @@ import json
 from pathlib import Path
 from tqdm import tqdm
 import time
-from typing import List, Tuple, Dict, Any
-from dotenv import load_dotenv
+from typing import List, Dict, Any
 
-# Load environment variables from .env file
-load_dotenv()
+from utils import (
+    ConfigManager,
+    MovieDataUtils,
+    FileUtils,
+    print_success,
+    print_error,
+    print_info,
+    print_warning,
+    print_progress,
+    print_data
+)
 
 
 class MovieEmbeddingGenerator:
     """Generate movie embeddings using OpenRouter API with batch processing"""
 
-    def __init__(self, api_key: str, batch_size: int = 100):
-        self.api_key = api_key
+    def __init__(self, api_key: str = None, batch_size: int = 100):
+        config = ConfigManager.get_openrouter_config()
+        self.api_key = api_key or config["api_key"]
         self.batch_size = batch_size
-        self.base_url = "https://openrouter.ai/api/v1"
-        self.model = "sentence-transformers/all-minilm-l12-v2"
+        self.base_url = config["base_url"]
+        self.model = config["model"]
 
     def load_movies(self, movies_csv: Path) -> List[Dict[str, Any]]:
         """Load movies from CSV file"""
-        movies = []
+        FileUtils.validate_file_exists(movies_csv, "Movies CSV file")
 
+        movies = []
         with open(movies_csv, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
-                # Extract year from title if not present as separate field
-                title = row['title']
-                year = None
-                genres = row['genres'].split('|') if row['genres'] != '(no genres listed)' else []
-
-                # Try to extract year from title (e.g., "Toy Story (1995)")
-                import re
-                year_match = re.search(r'\((\d{4})\)$', title)
-                if year_match:
-                    year = int(year_match.group(1))
-                    # Clean title by removing year
-                    title = title[:year_match.start()].rstrip()
-
                 movie_id = int(row['movieId'])
+                title, year = MovieDataUtils.extract_year_from_title(row['title'])
+                genres = MovieDataUtils.parse_genres(row['genres'])
 
                 movies.append({
                     'movie_id': movie_id,
@@ -68,18 +67,11 @@ class MovieEmbeddingGenerator:
 
     def format_movie_text(self, movie: Dict[str, Any]) -> str:
         """Format movie data for embedding generation"""
-        title = movie['title']
-        year = movie['year'] if movie['year'] else ''
-        genres = ' '.join(movie['genres']) if movie['genres'] else ''
-
-        # Combine all fields: title + year + genres
-        parts = [title]
-        if year:
-            parts.append(str(year))
-        if genres:
-            parts.append(genres)
-
-        return ' '.join(parts)
+        return MovieDataUtils.format_movie_text(
+            movie['title'],
+            movie['year'],
+            movie['genres']
+        )
 
     def generate_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for a batch of texts using OpenRouter API"""
@@ -183,22 +175,12 @@ def main():
     movies_csv = sample_data_dir / "movies.csv"
     output_csv = sample_data_dir / "embeddings.csv"
 
-    # Check if input file exists
-    if not movies_csv.exists():
-        print(f"❌ Input file not found: {movies_csv}")
+    # Validate OpenRouter configuration
+    if not ConfigManager.validate_openrouter_config():
         sys.exit(1)
 
-    # Get API key from environment (loaded from .env)
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        print("❌ OPENROUTER_API_KEY environment variable not set!")
-        print("💡 Create a .env file based on .env.example and add your API key")
-        print("📝 Example: cp .env.example .env")
-        print("🔑 Then edit .env and add: OPENROUTER_API_KEY=your-key-here")
-        sys.exit(1)
-
-    # Configuration from environment or default
-    batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "100"))
+    # Configuration from environment
+    batch_size = ConfigManager.get_batch_size("EMBEDDING_BATCH_SIZE", 100)
 
     print("🎬 Movie Embedding Generator")
     print("=" * 40)
@@ -207,7 +189,7 @@ def main():
     print()
 
     # Create generator
-    generator = MovieEmbeddingGenerator(api_key, batch_size)
+    generator = MovieEmbeddingGenerator(batch_size=batch_size)
 
     try:
         # Load movies
@@ -227,10 +209,10 @@ def main():
         generator.generate_all_embeddings(movies, output_csv)
 
     except KeyboardInterrupt:
-        print("\n⚠️  Process interrupted by user")
+        print_warning("\n⚠️  Process interrupted by user")
         sys.exit(1)
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print_error(f"❌ Error: {e}")
         sys.exit(1)
 
 

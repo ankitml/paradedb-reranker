@@ -14,11 +14,16 @@ This module provides:
 
 import os
 import sys
+import re
+import csv
+import json
+import logging
 import psycopg2
 from dotenv import load_dotenv
 from psycopg2.extras import execute_values
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
@@ -67,6 +72,47 @@ class ConfigManager:
                 print_error(f"❌ Missing required configuration: {field}")
                 return False
 
+        return True
+
+    @staticmethod
+    def get_openrouter_config() -> Dict[str, str]:
+        """Get OpenRouter API configuration from environment variables
+
+        Returns:
+            Dict with OpenRouter configuration
+        """
+        return {
+            "api_key": os.getenv("OPENROUTER_API_KEY"),
+            "base_url": "https://openrouter.ai/api/v1",
+            "model": "sentence-transformers/all-minilm-l12-v2"
+        }
+
+    @staticmethod
+    def get_batch_size(config_key: str, default: int = 1000) -> int:
+        """Get batch size from environment variable with fallback
+
+        Args:
+            config_key: Environment variable key
+            default: Default batch size
+
+        Returns:
+            Batch size integer
+        """
+        return int(os.getenv(config_key, str(default)))
+
+    @staticmethod
+    def validate_openrouter_config() -> bool:
+        """Validate OpenRouter API configuration
+
+        Returns:
+            bool: True if configuration is valid
+        """
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            print_error("❌ OpenRouter API key not configured!")
+            print_info("💡 Set OPENROUTER_API_KEY environment variable")
+            print_info("📝 Example: export OPENROUTER_API_KEY='your-key-here'")
+            return False
         return True
 
 
@@ -213,6 +259,165 @@ class PrintUtils:
     def database(message: str) -> None:
         """Print database-related message with database emoji"""
         print(f"🗄️  {message}")
+
+
+class MovieDataUtils:
+    """Utilities for processing movie data"""
+
+    @staticmethod
+    def extract_year_from_title(title: str) -> Tuple[str, Optional[int]]:
+        """Extract year from movie title and clean title
+
+        Args:
+            title: Movie title possibly containing year in parentheses
+
+        Returns:
+            Tuple of (clean_title, year) where year may be None
+        """
+        year_match = re.search(r'\((\d{4})\)$', title)
+        if year_match:
+            year = int(year_match.group(1))
+            clean_title = title[:year_match.start()].rstrip()
+            return clean_title, year
+        return title, None
+
+    @staticmethod
+    def parse_genres(genres_str: str) -> List[str]:
+        """Parse pipe-separated genres into list
+
+        Args:
+            genres_str: Pipe-separated genre string
+
+        Returns:
+            List of genre strings
+        """
+        if genres_str == "(no genres listed)":
+            return []
+        return [genre.strip() for genre in genres_str.split("|") if genre.strip()]
+
+    @staticmethod
+    def format_movie_text(title: str, year: Optional[int] = None, genres: List[str] = None) -> str:
+        """Format movie data for embedding generation
+
+        Args:
+            title: Movie title
+            year: Optional year
+            genres: Optional list of genres
+
+        Returns:
+            Formatted text string for embedding
+        """
+        parts = [title]
+        if year:
+            parts.append(str(year))
+        if genres:
+            parts.append(' '.join(genres))
+        return ' '.join(parts)
+
+
+class FileUtils:
+    """Utilities for file processing and validation"""
+
+    @staticmethod
+    def validate_file_exists(file_path: Path, description: str = "File") -> None:
+        """Validate that a file exists, raise exception if not
+
+        Args:
+            file_path: Path to file to validate
+            description: Description for error message
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+        """
+        if not file_path.exists():
+            raise FileNotFoundError(f"{description} not found: {file_path}")
+
+    @staticmethod
+    def count_csv_rows(file_path: Path) -> int:
+        """Count rows in CSV file (excluding header)
+
+        Args:
+            file_path: Path to CSV file
+
+        Returns:
+            Number of data rows
+        """
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return sum(1 for _ in file) - 1  # Subtract header row
+
+    @staticmethod
+    def batch_csv_reader(file_path: Path, batch_size: int) -> Iterator[List[Dict[str, Any]]]:
+        """Read CSV file in batches for memory efficiency
+
+        Args:
+            file_path: Path to CSV file
+            batch_size: Number of rows per batch
+
+        Yields:
+            List of dictionaries representing CSV rows
+        """
+        with open(file_path, 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            batch = []
+
+            for row in reader:
+                batch.append(row)
+                if len(batch) >= batch_size:
+                    yield batch
+                    batch = []
+
+            if batch:  # Yield remaining rows
+                yield batch
+
+    @staticmethod
+    def load_json_embeddings(csv_path: Path, movie_id_col: str = 'movie_id',
+                           embedding_col: str = 'movie_embedding') -> List[Dict[str, Any]]:
+        """Load embeddings from CSV with JSON-encoded vectors
+
+        Args:
+            csv_path: Path to CSV file
+            movie_id_col: Name of movie ID column
+            embedding_col: Name of embedding column
+
+        Returns:
+            List of dictionaries with movie_id and embedding_vector
+        """
+        embeddings = []
+
+        with open(csv_path, 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                movie_id = int(row[movie_id_col])
+                # Parse JSON string back to list of floats
+                embedding_vector = json.loads(row[embedding_col])
+
+                embeddings.append({
+                    'movie_id': movie_id,
+                    'content_embedding': embedding_vector
+                })
+
+        return embeddings
+
+
+class LoggingUtils:
+    """Utilities for logging configuration"""
+
+    @staticmethod
+    def setup_logging(name: str = __name__, level: int = logging.INFO) -> logging.Logger:
+        """Configure logging for the ingestion process
+
+        Args:
+            name: Logger name
+            level: Logging level
+
+        Returns:
+            Configured logger instance
+        """
+        logging.basicConfig(
+            level=level,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        return logging.getLogger(name)
 
 
 # Export convenient aliases
