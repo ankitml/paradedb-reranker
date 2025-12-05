@@ -1,4 +1,19 @@
-### Ingestion
+# Personalized Movie Re-ranking System
+
+Two-Tower recommendation model combining ParadeDB BM25 search with collaborative filtering re-ranking using vector similarity.
+
+## Python Scripts
+
+### Data Ingestion
+- **`ingest_data.py`** - MovieLens data ingestion script with bulk PostgreSQL import using COPY command and batch processing
+
+### Embedding Generation
+- **`generate_embedding.py`** - Generate movie embeddings using OpenRouter API with all-MiniLM-L12-v2 model and batch processing
+
+### Embedding Storage
+- **`ingest_embeddings.py`** - Upload generated embeddings from CSV to PostgreSQL movies table with vector storage
+
+## Ingestion
 ```
 source ~/.venv/bin/activate
 export PGPASSWORD="your_password"
