@@ -111,8 +111,7 @@ class PersonalizedSearchEngine:
                 personalized_ranker AS (
                     SELECT
                         n.*,
-                        (1 - (u.embedding <=> m.content_embedding)) as cosine_similarity,
-                        (1 - (u.embedding <=> m.content_embedding) + 1) / 2 as normalized_similarity
+                        (1 - (u.embedding <=> m.content_embedding)) as cosine_similarity
                     FROM normalization n
                     JOIN movies m ON n.movie_id = m.movie_id
                     CROSS JOIN users u WHERE u.user_id = %s
@@ -121,8 +120,8 @@ class PersonalizedSearchEngine:
                     SELECT
                         movie_id, title, year, genres,
                         normalized_bm25,
-                        normalized_similarity,
-                        (%s * normalized_bm25 + %s * normalized_similarity) as combined_score
+                        cosine_similarity,
+                        (%s * normalized_bm25 + %s * cosine_similarity) as combined_score
                     FROM personalized_ranker
                 )
                 SELECT * FROM joint_ranker
@@ -137,7 +136,7 @@ class PersonalizedSearchEngine:
                     'year': row[2],
                     'genres': row[3],
                     'normalized_bm25_score': float(row[4]),
-                    'similarity_score': float(row[5]),
+                    'cosine_similarity': float(row[5]),
                     'combined_score': float(row[6])
                 }
                 for row in results
@@ -236,7 +235,7 @@ class PersonalizedSearchEngine:
                 movie = rerank_results[i]
                 title = self._truncate_title(movie['title'], max_title_length)
                 if show_scores:
-                    rerank_col = f"{i+1:2d}. {title} ({movie['similarity_score']:.3f})"
+                    rerank_col = f"{i+1:2d}. {title} ({movie['cosine_similarity']:.3f})"
                 else:
                     rerank_col = f"{i+1:2d}. {title}"
             else:

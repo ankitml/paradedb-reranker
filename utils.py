@@ -198,12 +198,13 @@ class DatabaseConnection:
             print_error(f"❌ Query execution failed: {e}")
             raise
 
-    def execute_update(self, query: str, params: Optional[tuple] = None) -> int:
+    def execute_update(self, query: str, params: Optional[tuple] = None, commit: bool = True) -> int:
         """Execute an UPDATE/INSERT/DELETE query and return affected row count
 
         Args:
             query: SQL query to execute
             params: Optional query parameters
+            commit: Whether to auto-commit the transaction (default: True)
 
         Returns:
             Number of affected rows
@@ -217,9 +218,16 @@ class DatabaseConnection:
                     cursor.execute(query, params)
                 else:
                     cursor.execute(query)
-                return cursor.rowcount
+                affected_rows = cursor.rowcount
+
+                if commit:
+                    self.conn.commit()
+
+                return affected_rows
         except Exception as e:
             print_error(f"❌ Update execution failed: {e}")
+            if commit:
+                self.conn.rollback()
             raise
 
     def commit(self) -> None:
