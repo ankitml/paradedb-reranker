@@ -1,31 +1,36 @@
-# Personalized Movie Re-ranking System
+# Personalized Movie Re-ranking: Technical Approaches
 
-## Overview
-Two-Tower recommendation model combining ParadeDB BM25 search with collaborative filtering re-ranking using vector similarity.
+## Current Problem
+Users with opposite preferences get identical rankings because current embeddings don't capture preference direction.
 
-## Core Components
+## Approaches (Simple → Complex)
 
+### 1. Directional Vectors + Dot Product (Current Plan)
+- Positive ratings: ADD movie embedding to user vector
+- Negative ratings: SUBTRACT movie embedding from user vector
+- Score: Direct dot product (gives signed similarity)
+- Timeline: 1-2 days
 
-### 1. User Preference Embeddings
-- **Primary Strategy**: Rating-based collaborative filtering
-  - Positive signals: Ratings >=4.0 (user likes)
-  - Negative signals: Ratings <3.0 (user dislikes)
-  - **Formula**:
-    ```
-    # Calculate weighted average of liked movies
-    like_weights = sum(liked_movie_ratings - 3.5)
-    like_embedding = sum((rating - 3.5) * movie_embedding for liked movies) / like_weights
+### 2. Two-Tower Neural Network
+- User tower: features + rating history → embedding
+- Movie tower: content + metadata → embedding
+- Train with triplet loss
+- Timeline: 3-4 weeks
 
-    # Calculate weighted average of disliked movies
-    dislike_weights = sum(3.5 - disliked_movie_ratings)
-    dislike_embedding = sum((3.5 - rating) * movie_embedding for disliked movies) / dislike_weights
+### 3. Cohere Cross-Encoder Reranking
+- First stage: BM25 + vector search (100 items)
+- Second stage: LLM scores top 10
+- Pros: Deep semantic understanding
+- Cons: API cost, latency
+- Timeline: 2-3 weeks
 
-    # Final user embedding combines preferences
-    user_embedding = like_embedding - dislike_embedding
-    ```
-- **Advanced Strategy**: Bi-encoder approach for separate user preference modeling
+### 4. Graph Neural Networks
+- Model users and movies as bipartite graph
+- Message passing through connections
+- Timeline: 2-3 months
 
-### 2. Two-Stage Search Pipeline
-- **Stage 1**: ParadeDB BM25 retrieval for relevant candidates
-- **Stage 2**: Personalized re-ranking using vector dot product similarity
-- **Final Scoring**: Linear combination of BM25 relevance + personalized similarity
+## Current Implementation Plan
+1. Fix embeddings with vector addition/subtraction
+2. Replace cosine similarity with dot product
+3. Test with opposite users (fantasy lovers/haters)
+4. Deploy and validate
