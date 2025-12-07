@@ -1,4 +1,4 @@
-# Personalized Movie Re-ranking System
+# Personalized Movie Re-ranking after BM25 from ParadeDB (All in Postgres)
 
 A hybrid search and recommendation system that demonstrates how user preferences can dramatically reorder search results. By combining traditional keyword search (BM25) with collaborative filtering through vector embeddings, we achieve personalized rankings that reflect individual tastes - fantasy lovers see fantasy movies rise to the top while fantasy haters see them penalized.
 
