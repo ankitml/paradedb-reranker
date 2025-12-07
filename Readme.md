@@ -81,7 +81,67 @@ python generate_user_embeddings.py
 python generate_user_embeddings.py --user-ids 10001 10002 20001 20002
 ```
 
-Uses directional vectors: ADD for positive ratings (≥4.0), SUBTRACT for negative ratings (<3.0).
+#### How User Embeddings Are Calculated
+
+**Directional Vector Approach (Current Implementation):**
+```
+user_embedding = Σ(positive_ratings) - Σ(negative_ratings)
+
+For each movie rating:
+- Rating ≥ 4.0: user_embedding += movie_embedding × (rating - 3.0)
+- Rating < 3.0: user_embedding -= movie_embedding × (3.0 - rating)
+```
+
+**Logic:**
+- **Positive signals** (ratings 4-5) add the movie's characteristics to user's preference vector
+- **Negative signals** (ratings 1-2) subtract the movie's characteristics
+- **Neutral rating** (3.0) has no effect
+- **Weighting**: Higher ratings have stronger influence (5.0 adds 2×, 4.0 adds 1×)
+
+**Example:**
+- User rates "Lord of the Rings" 5.0 → +2 × fantasy_vector
+- User rates "The Conjuring" 1.0 → -2 × horror_vector
+- Result: User preference leans toward fantasy, away from horror
+
+#### Alternative Approaches
+
+**1. Weighted Average (Traditional):**
+```sql
+user_embedding = Σ(rating × movie_embedding) / Σ(rating)
+```
+- *Pro*: Simple, stable
+- *Con*: Loses preference direction, all users with similar taste patterns get similar embeddings
+
+**2. TF-IDF Weighting:**
+```sql
+weight = (user_rating / avg_movie_rating) × log(total_users / users_who_rated)
+user_embedding = Σ(weight × movie_embedding)
+```
+- *Pro*: Accounts for rating rarity
+- *Con*: More complex, requires global statistics
+
+**3. Neural Network Two-Tower:**
+```
+User Tower: [user_features, rating_history] → 384-dim embedding
+Movie Tower: [movie_features, content] → 384-dim embedding
+Trained with: score = dot_product(user_embedding, movie_embedding)
+```
+- *Pro*: Learns complex patterns
+- *Con*: Requires training data, more infrastructure
+
+**4. Matrix Factorization (SVD):**
+```
+Decompose rating_matrix = U × S × V^T
+U contains user embeddings, V contains movie embeddings
+```
+- *Pro*: Proven recommendation technique
+- *Con*: Cold start problem, requires dense rating matrix
+
+The directional approach was chosen for its:
+- Simplicity (single SQL operation)
+- Clear interpretability
+- Ability to create opposite embeddings for opposite users
+- No training required
 
 ### 6. Run Personalized Search
 
@@ -92,6 +152,75 @@ python search_cli.py --query "lord" --user-id 10001 --show-scores
 # Adjust personalization weight (default: 50%)
 python search_cli.py --query "magic" --user-id 20001 --partial-weight 30
 ```
+
+#### How Personalized Search Works
+
+**The Complete SQL Query:**
+```sql
+WITH first_pass_retrieval AS (
+    -- Step 1: BM25 candidate generation
+    SELECT
+        movie_id, title, year, genres,
+        paradedb.score(movie_id) as bm25_score
+    FROM movies
+    WHERE movies @@@ 'king'
+    ORDER BY paradedb.score(movie_id) DESC, movie_id ASC
+    LIMIT 20
+),
+normalization AS (
+    -- Step 2: Normalize BM25 scores to [0,1]
+    SELECT
+        *,
+        CASE
+            WHEN MAX(bm25_score) OVER() = MIN(bm25_score) OVER() THEN 0.5
+            ELSE (bm25_score - MIN(bm25_score) OVER()) /
+                 (MAX(bm25_score) OVER() - MIN(bm25_score) OVER())
+        END as normalized_bm25
+    FROM first_pass_retrieval
+),
+personalized_ranker AS (
+    -- Step 3: Calculate user similarity scores
+    SELECT
+        n.*,
+        (1 - (u.embedding <=> m.content_embedding)) as cosine_similarity
+    FROM normalization n
+    JOIN movies m ON n.movie_id = m.movie_id
+    CROSS JOIN users u WHERE u.user_id = 20001
+),
+joint_ranker AS (
+    -- Step 4: Combine scores with weights
+    SELECT
+        movie_id, title, year, genres,
+        normalized_bm25,
+        cosine_similarity,
+        (0.5 * normalized_bm25 + 0.5 * cosine_similarity) as combined_score
+    FROM personalized_ranker
+)
+SELECT * FROM joint_ranker
+ORDER BY combined_score DESC;
+```
+
+**Step-by-Step Process:**
+
+1. **BM25 Retrieval** (`first_pass_retrieval`)
+   - Finds movies matching the search query using ParadeDB BM25
+   - Orders by relevance score, keeps top candidates
+   - Example: "king" finds King Kong, King Arthur, etc.
+
+2. **Score Normalization** (`normalization`)
+   - Converts BM25 scores to 0-1 range
+   - Handles edge case when all scores are identical (returns 0.5)
+   - Formula: `(score - min) / (max - min)`
+
+3. **Personalization** (`personalized_ranker`)
+   - Calculates cosine similarity between user and movie embeddings
+   - Range: -1 to 1 (negative values indicate opposite preferences)
+   - Formula: `1 - (user_embedding <=> movie_embedding)`
+
+4. **Score Fusion** (`joint_ranker`)
+   - Combines normalized BM25 with similarity scores
+   - Default: 50% BM25 + 50% personalization
+   - Formula: `α × bm25 + (1-α) × similarity`
 
 ## Architecture
 
@@ -104,6 +233,59 @@ Where:
 - α = 0.5: 50/50 hybrid (default)
 - α = 0.0: Pure personalization
 ```
+
+### Why This Two-Stage Approach?
+
+**Stage 1 - BM25 Retrieval:**
+- ✅ Fast keyword matching with inverted index
+- ✅ Handles large million-item database efficiently
+- ✅ Provides relevant candidates
+- ❌ No personalization
+
+**Stage 2 - Personalized Re-ranking:**
+- ✅ Computes expensive vector similarity on few candidates
+- ✅ Incorporates user preferences
+- ✅ Enables real-time personalization
+- ❌ Computationally expensive (hence limited to top candidates)
+
+**Alternative Approaches:**
+
+**1. Vector Search Only:**
+```sql
+-- Similarity search without BM25
+SELECT movie_id, title, 1 - (embedding <=> user_embedding) as score
+FROM movies
+ORDER BY embedding <=> user_embedding
+LIMIT 20;
+```
+- *Pro*: Purely personalized
+- *Con*: No keyword relevance, may return unrelated movies
+
+**2. Learning to Rank:**
+```sql
+-- Machine learning model predicts relevance
+SELECT *, predict_relevance(movie_features, user_features) as score
+FROM movies
+WHERE movies @@@ query
+ORDER BY score DESC;
+```
+- *Pro*: Learns optimal ranking patterns
+- *Con*: Requires training, feature engineering
+
+**3. Reciprocal Rank Fusion (RRF):**
+```sql
+-- Combine rankings without score normalization
+WITH bm25_rank AS (
+  SELECT movie_id, ROW_NUMBER() OVER (ORDER BY bm25_score DESC) as rank
+),
+similarity_rank AS (
+  SELECT movie_id, ROW_NUMBER() OVER (ORDER BY similarity DESC) as rank
+)
+SELECT movie_id, 1/(60 + bm25_rank) + 1/(60 + similarity_rank) as score
+FROM bm25_rank JOIN similarity_rank USING(movie_id);
+```
+- *Pro*: No score normalization needed
+- *Con*: Loses actual score magnitudes
 
 ### Vector Direction
 - **Positive ratings** (≥4.0): `user_embedding += movie_embedding × (rating-3.0)`
