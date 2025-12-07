@@ -12,8 +12,9 @@ The regularization fixes edge cases like users with only negative ratings.
 
 import os
 import sys
+import argparse
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from utils import (
     DatabaseConnection,
@@ -43,62 +44,125 @@ class PureSQLEmbeddingGenerator:
             print_error(f"Database setup failed: {e}")
             raise
 
-    def generate_all_embeddings_pure_sql(self) -> None:
-        """Generate all user embeddings using a single massive SQL operation"""
+    def generate_embeddings_pure_sql(self, user_ids: Optional[List[int]] = None) -> None:
+        """Generate user embeddings using targeted SQL operation"""
         try:
-            print_info("🚀 Generating all user embeddings using pure SQL...")
-            print_data("This will process all users in one database operation")
+            if user_ids:
+                print_info(f"🚀 Generating embeddings for {len(user_ids)} specific users using pure SQL...")
+                print_data(f"Target users: {user_ids}")
 
-            # Single SQL operation that handles all users
-            affected_rows = self.db.execute_update("""
-                UPDATE users u
-                SET embedding = (
-                    WITH user_weights AS (
-                        SELECT
-                            CASE
-                                WHEN r.rating >= 4.0 THEN (r.rating - 3.5)
-                                ELSE -(3.5 - r.rating) * 0.8  -- Reduce negative weight by 20%
-                            END + 0.1 as weight,  -- Add small positive bias to prevent pure negative
-                            m.content_embedding
-                        FROM ratings r
+                # Process each user individually to avoid parameter issues
+                total_affected = 0
+                for user_id in user_ids:
+                    # Use string formatting for user_id to avoid parameter binding issues with complex CTEs
+                    user_sql = f"""
+                        UPDATE users u
+                        SET embedding = (
+                            WITH user_weights AS (
+                                SELECT
+                                    CASE
+                                        WHEN r.rating >= 4.0 THEN (r.rating - 3.5)
+                                        ELSE -(3.5 - r.rating) * 0.8  -- Reduce negative weight by 20%
+                                    END + 0.1 as weight,  -- Add small positive bias to prevent pure negative
+                                    m.content_embedding
+                                FROM ratings r
+                                JOIN movies m ON r.movie_id = m.movie_id
+                                WHERE r.user_id = {user_id}
+                                  AND m.content_embedding IS NOT NULL
+                                  AND (r.rating >= 4.0 OR r.rating < 3.0)
+                            ),
+                            weighted_sum AS (
+                                SELECT
+                                    SUM(
+                                        ARRAY(
+                                            SELECT elem * weight
+                                            FROM unnest(content_embedding::float4[]) AS elem
+                                        )::vector(384)
+                                    ) as sum_weighted_embeddings,
+                                    SUM(weight) as total_weight
+                                FROM user_weights
+                                WHERE weight != 0  -- Avoid zero weights
+                            ),
+                            final_embedding AS (
+                                SELECT CASE
+                                    WHEN total_weight IS NULL OR total_weight <= 0 OR sum_weighted_embeddings IS NULL THEN NULL
+                                    ELSE ARRAY(
+                                        SELECT elem / total_weight
+                                        FROM unnest(sum_weighted_embeddings::float4[]) AS elem
+                                    )::vector(384)
+                                END as embedding
+                                FROM weighted_sum
+                            )
+                            SELECT embedding FROM final_embedding
+                        ),
+                        updated_at = NOW()
+                        WHERE u.user_id = {user_id}
+                          AND EXISTS (
+                            SELECT 1 FROM ratings r
+                            JOIN movies m ON r.movie_id = m.movie_id
+                            WHERE r.user_id = {user_id}
+                              AND m.content_embedding IS NOT NULL
+                              AND (r.rating >= 4.0 OR r.rating < 3.0)
+                        )
+                    """
+                    affected_rows = self.db.execute_update(user_sql)
+                    total_affected += affected_rows
+
+                affected_rows = total_affected
+            else:
+                print_info("🚀 Generating all user embeddings using pure SQL...")
+                print_data("This will process all users in one database operation")
+
+                # SQL operation that handles all users
+                affected_rows = self.db.execute_update("""
+                    UPDATE users u
+                    SET embedding = (
+                        WITH user_weights AS (
+                            SELECT
+                                CASE
+                                    WHEN r.rating >= 4.0 THEN (r.rating - 3.5)
+                                    ELSE -(3.5 - r.rating) * 0.8  -- Reduce negative weight by 20%
+                                END + 0.1 as weight,  -- Add small positive bias to prevent pure negative
+                                m.content_embedding
+                            FROM ratings r
+                            JOIN movies m ON r.movie_id = m.movie_id
+                            WHERE r.user_id = u.user_id
+                              AND m.content_embedding IS NOT NULL
+                              AND (r.rating >= 4.0 OR r.rating < 3.0)
+                        ),
+                        weighted_sum AS (
+                            SELECT
+                                SUM(
+                                    ARRAY(
+                                        SELECT elem * weight
+                                        FROM unnest(content_embedding::float4[]) AS elem
+                                    )::vector(384)
+                                ) as sum_weighted_embeddings,
+                                SUM(weight) as total_weight
+                            FROM user_weights
+                            WHERE weight != 0  -- Avoid zero weights
+                        ),
+                        final_embedding AS (
+                            SELECT CASE
+                                WHEN total_weight IS NULL OR total_weight <= 0 OR sum_weighted_embeddings IS NULL THEN NULL
+                                ELSE ARRAY(
+                                    SELECT elem / total_weight
+                                    FROM unnest(sum_weighted_embeddings::float4[]) AS elem
+                                )::vector(384)
+                            END as embedding
+                                FROM weighted_sum
+                        )
+                        SELECT embedding FROM final_embedding
+                    ),
+                    updated_at = NOW()
+                    WHERE EXISTS (
+                        SELECT 1 FROM ratings r
                         JOIN movies m ON r.movie_id = m.movie_id
                         WHERE r.user_id = u.user_id
                           AND m.content_embedding IS NOT NULL
                           AND (r.rating >= 4.0 OR r.rating < 3.0)
-                    ),
-                    weighted_sum AS (
-                        SELECT
-                            SUM(
-                                ARRAY(
-                                    SELECT elem * weight
-                                    FROM unnest(content_embedding::float4[]) AS elem
-                                )::vector(384)
-                            ) as sum_weighted_embeddings,
-                            SUM(weight) as total_weight
-                        FROM user_weights
-                        WHERE weight != 0  -- Avoid zero weights
-                    ),
-                    final_embedding AS (
-                        SELECT CASE
-                            WHEN total_weight = 0 OR total_weight IS NULL THEN NULL
-                            ELSE ARRAY(
-                                SELECT elem / total_weight
-                                FROM unnest(sum_weighted_embeddings::float4[]) AS elem
-                            )::vector(384)
-                        END as embedding
-                        FROM weighted_sum
                     )
-                    SELECT embedding FROM final_embedding
-                ),
-                updated_at = NOW()
-                WHERE EXISTS (
-                    SELECT 1 FROM ratings r
-                    JOIN movies m ON r.movie_id = m.movie_id
-                    WHERE r.user_id = u.user_id
-                      AND m.content_embedding IS NOT NULL
-                      AND (r.rating >= 4.0 OR r.rating < 3.0)
-                )
-            """)
+                """)
 
             print_success(f"✅ Updated embeddings for {affected_rows} users")
 
@@ -133,14 +197,15 @@ class PureSQLEmbeddingGenerator:
         except Exception as e:
             print_error(f"Statistics verification failed: {e}")
 
-    def verify_test_users(self) -> None:
-        """Verify that our test users (10001, 10002, 20001, 20002) have embeddings"""
-        test_user_ids = [10001, 10002, 20001, 20002]
+    def verify_test_users(self, user_ids: Optional[List[int]] = None) -> None:
+        """Verify that specified users have embeddings"""
+        if user_ids is None:
+            user_ids = [10001, 10002, 20001, 20002]  # Default test users
 
         print()
-        print_data("🔍 Verifying Test User Embeddings:")
+        print_data(f"🔍 Verifying User Embeddings:")
 
-        for user_id in test_user_ids:
+        for user_id in user_ids:
             try:
                 result = self.db.execute_query("""
                     SELECT embedding IS NOT NULL as has_embedding, updated_at
@@ -169,6 +234,31 @@ class PureSQLEmbeddingGenerator:
 def main():
     """Main execution function"""
 
+    parser = argparse.ArgumentParser(
+        description="Pure SQL User Embedding Generator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    # Generate embeddings for all users
+    python generate_user_embeddings.py
+
+    # Generate embeddings for specific users
+    python generate_user_embeddings.py --user-ids 10001 10002 20001
+
+    # Generate for a single user
+    python generate_user_embeddings.py --user-ids 10001
+        """
+    )
+
+    parser.add_argument(
+        "--user-ids", "-u",
+        type=int,
+        nargs="*",
+        help="Specific user IDs to generate embeddings for (default: all users)"
+    )
+
+    args = parser.parse_args()
+
     # Validate database configuration
     db_config = ConfigManager.get_db_config()
     if not ConfigManager.validate_config(db_config):
@@ -187,14 +277,17 @@ def main():
         # Setup database connection
         generator.setup_database()
 
-        # Generate all embeddings in one SQL operation
-        generator.generate_all_embeddings_pure_sql()
+        # Generate embeddings for specified users or all users
+        generator.generate_embeddings_pure_sql(args.user_ids)
 
         # Verify results
         generator.verify_statistics()
-        generator.verify_test_users()
+        generator.verify_test_users(args.user_ids)
 
-        print_success("🎉 Pure SQL user embedding generation completed successfully!")
+        if args.user_ids:
+            print_success(f"🎉 Embedding generation completed for {len(args.user_ids)} users!")
+        else:
+            print_success("🎉 Pure SQL user embedding generation completed successfully!")
 
     except KeyboardInterrupt:
         print_warning("\n⚠️  Process interrupted by user")
