@@ -33,81 +33,20 @@ from utils import (
 
 
 class UserEmbeddingGenerator:
-    """Generate user preference embeddings using pure SQL"""
+    """Generate user preference embeddings using collaborative filtering approach"""
 
-    def __init__(self):
+    def __init__(self, db_config: Dict[str, str] = None):
+        self.db_config = db_config or ConfigManager.get_db_config()
         self.db = None
 
     def setup_database(self) -> None:
-        """Initialize database connection and verify schema"""
+        """Initialize database connection"""
         try:
-            self.db = DatabaseConnection()
+            self.db = DatabaseConnection(self.db_config)
             self.db.connect()
-            self._verify_schema()
         except Exception as e:
             print_error(f"Database setup failed: {e}")
             raise
-
-    def _verify_schema(self) -> None:
-        """Verify that users table has embedding and updated_at columns"""
-        try:
-            # Check if columns exist
-            columns = self.db.execute_query("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'users'
-                AND column_name IN ('embedding', 'updated_at');
-            """)
-
-            existing_cols = [row[0] for row in columns]
-
-            # Add missing columns if needed
-            if 'embedding' not in existing_cols:
-                self.db.execute_query("""
-                    ALTER TABLE users
-                    ADD COLUMN embedding VECTOR(384);
-                """)
-                self.db.commit()
-                print_success("Added embedding column to users table")
-
-            if 'updated_at' not in existing_cols:
-                self.db.execute_query("""
-                    ALTER TABLE users
-                    ADD COLUMN updated_at TIMESTAMP DEFAULT NOW();
-                """)
-                self.db.commit()
-                print_success("Added updated_at column to users table")
-
-        except Exception as e:
-            print_error(f"Schema verification failed: {e}")
-            raise
-
-    def _get_user_embedding_sql(self) -> str:
-        """Get the SQL query for computing a single user's embedding"""
-        return """
-        WITH weighted_embeddings AS (
-            SELECT
-                user_id,
-                CASE
-                    WHEN rating >= 4.0 THEN (rating - 3.5)  -- Positive weight
-                    ELSE -(3.5 - rating)                  -- Negative weight
-                END as weight,
-                content_embedding
-            FROM ratings r
-            JOIN movies m ON r.movie_id = m.movie_id
-            WHERE r.user_id = %s
-              AND m.content_embedding IS NOT NULL
-              AND (rating >= 4.0 OR rating < 3.0)  -- Only likes and dislikes
-        )
-        SELECT
-            user_id,
-            CASE
-                WHEN COUNT(*) = 0 THEN NULL
-                ELSE (SELECT SUM(weight * content_embedding) / SUM(weight))
-            END as embedding
-        FROM weighted_embeddings
-        GROUP BY user_id
-        """
 
     def generate_user_embedding(self, user_id: int) -> bool:
         """Generate embedding for a single user using pure SQL
@@ -119,6 +58,21 @@ class UserEmbeddingGenerator:
             bool: True if embedding was generated, False if no data
         """
         try:
+            # First check if user has any ratings with movie embeddings
+            check_result = self.db.execute_query("""
+                SELECT COUNT(*) as rating_count
+                FROM ratings r
+                JOIN movies m ON r.movie_id = m.movie_id
+                WHERE r.user_id = %s
+                  AND m.content_embedding IS NOT NULL
+                  AND (r.rating >= 4.0 OR r.rating < 3.0)
+            """, (user_id,))
+
+            rating_count = check_result[0][0]
+            if rating_count == 0:
+                print_warning(f"User {user_id} has no qualifying ratings - skipping")
+                return False
+
             # Compute user embedding in SQL and update directly
             self.db.execute_query("""
                 WITH user_weights AS (
@@ -133,9 +87,26 @@ class UserEmbeddingGenerator:
                     WHERE r.user_id = %s
                       AND m.content_embedding IS NOT NULL
                       AND (r.rating >= 4.0 OR r.rating < 3.0)
+                ),
+                weighted_sum AS (
+                    SELECT SUM(
+                        ARRAY(
+                            SELECT elem * weight
+                            FROM unnest(content_embedding::float4[]) AS elem
+                        )::vector(384)
+                    ) as sum_weighted_embeddings,
+                    SUM(weight) as total_weight
+                    FROM user_weights
+                ),
+                final_embedding AS (
+                    SELECT ARRAY(
+                        SELECT elem / total_weight
+                        FROM unnest(sum_weighted_embeddings::float4[]) AS elem
+                    )::vector(384) as embedding
+                    FROM weighted_sum
                 )
                 UPDATE users
-                SET embedding = (SELECT SUM(weight * content_embedding) / SUM(weight) FROM user_weights),
+                SET embedding = (SELECT embedding FROM final_embedding),
                     updated_at = NOW()
                 WHERE user_id = %s
             """, (user_id, user_id))
@@ -248,9 +219,14 @@ class UserEmbeddingGenerator:
 def main():
     """Main execution function"""
 
+    # Validate database configuration
+    db_config = ConfigManager.get_db_config()
+    if not ConfigManager.validate_config(db_config):
+        sys.exit(1)
+
     print_progress("🎯 User Preference Embeddings Generator (Simple Loop)")
     print("=" * 60)
-    print_data(f"🗄️  Database: localhost:5433/postgres")
+    print_data(f"🗄️  Database: {db_config['host']}:{db_config['port']}/{db_config['database']}")
     print_success("🚀 Using simple loop with pure SQL operations")
     print()
 
@@ -258,7 +234,7 @@ def main():
     generator = UserEmbeddingGenerator()
 
     try:
-        # Setup database connection
+        # Setup database connection and verify schema
         generator.setup_database()
 
         # Generate embeddings for all users
