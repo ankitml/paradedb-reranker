@@ -1,6 +1,24 @@
 # Personalized Movie Re-ranking System
 
-Two-Tower recommendation model combining ParadeDB BM25 search with collaborative filtering re-ranking using vector similarity.
+A hybrid search and recommendation system that demonstrates how user preferences can dramatically reorder search results. By combining traditional keyword search (BM25) with collaborative filtering through vector embeddings, we achieve personalized rankings that reflect individual tastes - fantasy lovers see fantasy movies rise to the top while fantasy haters see them penalized.
+
+## Why This Matters
+
+**Traditional search = One-size-fits-all**
+- All users get identical results for the same query
+- No consideration for personal preferences
+- Limited to keyword matching
+
+**Personalized search = Tailored experience**
+- Same query yields different results per user
+- Incorporates user's viewing history and preferences
+- Balances relevance with personal taste
+
+**Real-world applications:**
+- **E-commerce**: Product search that prioritizes brands/categories you prefer
+- **Streaming**: Content discovery matching your viewing history
+- **News**: Articles aligned with your interests and reading patterns
+- **Enterprise**: Document search prioritizing relevant teams/projects
 
 ## Quick Start
 
@@ -206,6 +224,87 @@ ratings
 - rating (0.5 - 5.0)
 - timestamp
 ```
+
+## Beyond Re-ranking: Full Recommendation System
+
+This implementation focuses on personalized re-ranking, but the same infrastructure can extend to complete recommender systems:
+
+### 1. User Similarity Discovery
+```sql
+-- Find users with similar tastes
+SELECT u1.user_id, u2.user_id,
+       (1 - (u1.embedding <=> u2.embedding)) as similarity
+FROM users u1, users u2
+WHERE u1.user_id = 10001
+  AND u2.user_id != 10001
+ORDER BY similarity DESC
+LIMIT 10;
+```
+
+### 2. Collaborative Filtering
+```sql
+-- Get movies liked by similar users
+WITH similar_users AS (
+  SELECT user_id
+  FROM users
+  WHERE user_id != 10001
+  ORDER BY embedding <=> (SELECT embedding FROM users WHERE user_id = 10001)
+  LIMIT 100
+)
+SELECT DISTINCT m.movie_id, m.title, AVG(r.rating) as avg_rating
+FROM movies m
+JOIN ratings r ON m.movie_id = r.movie_id
+JOIN similar_users su ON r.user_id = su.user_id
+WHERE r.rating >= 4.0
+  AND m.movie_id NOT IN (
+    SELECT movie_id FROM ratings WHERE user_id = 10001
+  )
+GROUP BY m.movie_id, m.title
+ORDER BY avg_rating DESC
+LIMIT 20;
+```
+
+### 3. Cold Start Solutions
+- **Content-based**: Use movie genres, actors, directors
+- **Demographic**: Age, location data when available
+- **Hybrid**: Combine with popularity trends
+
+### 4. Real-time Personalization
+```sql
+-- Update user embedding after new rating
+UPDATE users u
+SET embedding = u.embedding + (
+  CASE
+    WHEN NEW.rating >= 4.0 THEN
+      (SELECT m.content_embedding FROM movies m WHERE m.movie_id = NEW.movie_id) * (NEW.rating - 3.0)
+    ELSE
+      -(SELECT m.content_embedding FROM movies m WHERE m.movie_id = NEW.movie_id) * (3.0 - NEW.rating)
+  END
+)
+WHERE u.user_id = NEW.user_id;
+```
+
+### Applications Beyond Movies
+
+**E-commerce Platforms:**
+- Search results prioritizing previously purchased brands
+- "Users who bought X also bought" recommendations
+- Dynamic category ranking based on browsing history
+
+**Music Streaming:**
+- Playlist generation matching user's mood/history
+- Artist discovery through similar listener preferences
+- Genre exploration with personal relevance scoring
+
+**Content Platforms:**
+- Article recommendations based on reading patterns
+- Video suggestions matching watch history
+- Podcast discovery through topic affinity
+
+**Enterprise Search:**
+- Document search prioritizing relevant departments
+- Code search favoring technologies you use
+- Internal knowledge base with project context
 
 ## Search Examples
 
