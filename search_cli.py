@@ -15,8 +15,8 @@ Usage:
 
 import argparse
 import sys
+import os
 from typing import List, Dict, Any, Optional
-from prettytable import PrettyTable
 from utils import (
     DatabaseConnection,
     ConfigManager,
@@ -178,106 +178,84 @@ class PersonalizedSearchEngine:
 
     def display_results(self, bm25_results: List[Dict], hybrid_results: List[Dict],
                        rerank_results: List[Dict], show_scores: bool = False, partial_weight: float = 50.0) -> None:
-        """Display results in three column format"""
+        """Display results using full terminal width"""
 
-        # Create three separate tables for better formatting
-        table_bm25 = PrettyTable()
-        table_hybrid = PrettyTable()
-        table_rerank = PrettyTable()
+        # Get terminal width
+        try:
+            terminal_width = os.get_terminal_size().columns
+        except:
+            terminal_width = 120  # fallback width
 
-        # Configure columns with descriptive titles
-        partial_label = f"⚖️ Partial ({partial_weight:.0f}%)"
-        if show_scores:
-            table_bm25.field_names = ["📊 BM25 Only (0%)", "Rank", "Movie", "Score"]
-            table_hybrid.field_names = [partial_label, "Rank", "Movie", "Score"]
-            table_rerank.field_names = ["🎯 100% Rerank", "Rank", "Movie", "Score"]
-        else:
-            table_bm25.field_names = ["📊 BM25 Only (0%)", "Rank", "Movie"]
-            table_hybrid.field_names = [partial_label, "Rank", "Movie"]
-            table_rerank.field_names = ["🎯 100% Rerank", "Rank", "Movie"]
+        print("\n🎬 Search Results Comparison")
+        print("=" * terminal_width)
 
-        # Set alignment
-        table_bm25.align["Movie"] = "l"
-        table_hybrid.align["Movie"] = "l"
-        table_rerank.align["Movie"] = "l"
+        # Calculate column widths
+        separator_width = 3  # " | "
+        total_content_width = terminal_width - (separator_width * 2)
+        col_width = total_content_width // 3
 
-        # Add header row
-        table_bm25.add_row(["", "", ""])
-        table_hybrid.add_row(["", "", ""])
-        table_rerank.add_row(["", "", ""])
+        # Headers
+        bm25_header = "📊 BM25 (0%)"
+        partial_header = f"⚖️ Partial ({partial_weight:.0f}%)"
+        rerank_header = "🎯 Rerank (100%)"
 
-        # Add data to tables
+        # Adjust title length based on available space
+        max_title_length = col_width - 15  # Space for "10. " and scores
+
+        # Print headers
+        header_line = f"{bm25_header:<{col_width}} | {partial_header:<{col_width}} | {rerank_header:<{col_width}}"
+        print(header_line)
+        print("-" * terminal_width)
+
+        # Print rows
         for i in range(10):
             # BM25 Only
             if i < len(bm25_results):
                 movie = bm25_results[i]
-                title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
+                title = self._truncate_title(movie['title'], max_title_length)
                 if show_scores:
-                    table_bm25.add_row([
-                        "", i+1, title,
-                        f"{movie['normalized_bm25_score']:.3f}"
-                    ])
+                    bm25_col = f"{i+1:2d}. {title} ({movie['normalized_bm25_score']:.3f})"
                 else:
-                    table_bm25.add_row(["", i+1, title])
+                    bm25_col = f"{i+1:2d}. {title}"
             else:
-                if show_scores:
-                    table_bm25.add_row(["", "", "", ""])
-                else:
-                    table_bm25.add_row(["", "", ""])
+                bm25_col = ""
 
-            # Hybrid 50/50
+            # Partial
             if i < len(hybrid_results):
                 movie = hybrid_results[i]
-                title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
+                title = self._truncate_title(movie['title'], max_title_length)
                 if show_scores:
-                    table_hybrid.add_row([
-                        "", i+1, title,
-                        f"{movie['combined_score']:.3f}"
-                    ])
+                    partial_col = f"{i+1:2d}. {title} ({movie['combined_score']:.3f})"
                 else:
-                    table_hybrid.add_row(["", i+1, title])
+                    partial_col = f"{i+1:2d}. {title}"
             else:
-                if show_scores:
-                    table_hybrid.add_row(["", "", "", ""])
-                else:
-                    table_hybrid.add_row(["", "", ""])
+                partial_col = ""
 
-            # 100% Rerank
+            # Rerank Only
             if i < len(rerank_results):
                 movie = rerank_results[i]
-                title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
+                title = self._truncate_title(movie['title'], max_title_length)
                 if show_scores:
-                    table_rerank.add_row([
-                        "", i+1, title,
-                        f"{movie['similarity_score']:.3f}"
-                    ])
+                    rerank_col = f"{i+1:2d}. {title} ({movie['similarity_score']:.3f})"
                 else:
-                    table_rerank.add_row(["", i+1, title])
+                    rerank_col = f"{i+1:2d}. {title}"
             else:
-                if show_scores:
-                    table_rerank.add_row(["", "", "", ""])
-                else:
-                    table_rerank.add_row(["", "", ""])
+                rerank_col = ""
 
-        print("\n🎬 Search Results Comparison")
-        print("=" * 120)
+            # Print row with proper truncation
+            bm25_col = bm25_col[:col_width]
+            partial_col = partial_col[:col_width]
+            rerank_col = rerank_col[:col_width]
 
-        # Display tables side by side
-        bm25_lines = str(table_bm25).split('\n')
-        hybrid_lines = str(table_hybrid).split('\n')
-        rerank_lines = str(table_rerank).split('\n')
+            print(f"{bm25_col:<{col_width}} | {partial_col:<{col_width}} | {rerank_col:<{col_width}}")
 
-        for i in range(max(len(bm25_lines), len(hybrid_lines), len(rerank_lines))):
-            bm25_line = bm25_lines[i] if i < len(bm25_lines) else " " * 40
-            hybrid_line = hybrid_lines[i] if i < len(hybrid_lines) else " " * 40
-            rerank_line = rerank_lines[i] if i < len(rerank_lines) else " " * 40
+        print("-" * terminal_width)
 
-            # Pad lines to consistent width
-            bm25_line = bm25_line.ljust(40)
-            hybrid_line = hybrid_line.ljust(40)
-            rerank_line = rerank_line.ljust(40)
-
-            print(f"{bm25_line}   {hybrid_line}   {rerank_line}")
+    def _truncate_title(self, title: str, max_length: int) -> str:
+        """Truncate title to max_length with ellipsis if needed"""
+        if len(title) <= max_length:
+            return title
+        return title[:max_length-3] + "..."
 
     def close(self) -> None:
         """Close database connection"""
