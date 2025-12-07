@@ -74,7 +74,7 @@ class UserEmbeddingGenerator:
                 return False
 
             # Compute user embedding in SQL and update directly
-            self.db.execute_query("""
+            affected_rows = self.db.execute_update("""
                 WITH user_weights AS (
                     SELECT
                         CASE
@@ -110,6 +110,10 @@ class UserEmbeddingGenerator:
                     updated_at = NOW()
                 WHERE user_id = %s
             """, (user_id, user_id))
+
+            # Verify that exactly 1 row was updated
+            if affected_rows != 1:
+                print_warning(f"Expected to update 1 row for user {user_id}, but updated {affected_rows} rows")
 
             self.db.commit()
             return True

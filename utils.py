@@ -198,6 +198,30 @@ class DatabaseConnection:
             print_error(f"❌ Query execution failed: {e}")
             raise
 
+    def execute_update(self, query: str, params: Optional[tuple] = None) -> int:
+        """Execute an UPDATE/INSERT/DELETE query and return affected row count
+
+        Args:
+            query: SQL query to execute
+            params: Optional query parameters
+
+        Returns:
+            Number of affected rows
+        """
+        if not self.conn:
+            raise RuntimeError("Database connection not established")
+
+        try:
+            with self.conn.cursor() as cursor:
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+                return cursor.rowcount
+        except Exception as e:
+            print_error(f"❌ Update execution failed: {e}")
+            raise
+
     def commit(self) -> None:
         """Commit current transaction"""
         if not self.conn:
