@@ -132,6 +132,7 @@ Where:
 Fig 1. Search for "lord" by fantasy hating user.
 <img width="1654" height="229" alt="image" src="https://github.com/user-attachments/assets/bfa1b106-e313-4d90-acc0-de8c2825a040" />
 Fig 2. Seach for "lord" by fantasy loving user.
+
 **Expected rankings:**
 - **Fantasy Lover (10001, 20001)**: LOTR movies move to TOP 3 positions
 - **Fantasy Hater (10002, 20002)**: LOTR movies drop to BOTTOM 3 positions (7-9)
