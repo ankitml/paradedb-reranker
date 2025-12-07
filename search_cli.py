@@ -147,13 +147,14 @@ class PersonalizedSearchEngine:
             print_error(f"Unified search failed: {e}")
             raise
 
-    def search(self, query: str, user_id: int, show_scores: bool = False) -> None:
+    def search(self, query: str, user_id: int, show_scores: bool = False, partial_weight: float = 50.0) -> None:
         """Main search method using unified SQL approach with three weight combinations"""
 
         print(f"\n🔍 Personalized Movie Search")
         print(f"   Query: '{query}'")
         print(f"   User ID: {user_id}")
         print(f"   Show Scores: {show_scores}")
+        print(f"   Partial Weight: {partial_weight}%")
         print("=" * 80)
 
         # Validate user exists and has embedding
@@ -162,42 +163,48 @@ class PersonalizedSearchEngine:
 
         print_info("🚀 Executing unified search with three weight combinations...")
 
+        # Convert percentage to decimal
+        partial_decimal = partial_weight / 100.0
+
         # Generate results for all three approaches using the unified query
         bm25_only = self.unified_search(query, user_id, bm25_weight=1.0, similarity_weight=0.0)
+        partial = self.unified_search(query, user_id, bm25_weight=1.0-partial_decimal, similarity_weight=partial_decimal)
         rerank_only = self.unified_search(query, user_id, bm25_weight=0.0, similarity_weight=1.0)
-        hybrid_50_50 = self.unified_search(query, user_id, bm25_weight=0.5, similarity_weight=0.5)
 
         print_info(f"   Found {len(bm25_only)} movies across all approaches")
 
         # Display results in three columns
-        self.display_results(bm25_only, rerank_only, hybrid_50_50, show_scores)
+        self.display_results(bm25_only, partial, rerank_only, show_scores, partial_weight)
 
-    def display_results(self, bm25_results: List[Dict], rerank_results: List[Dict],
-                       hybrid_results: List[Dict], show_scores: bool = False) -> None:
+    def display_results(self, bm25_results: List[Dict], hybrid_results: List[Dict],
+                       rerank_results: List[Dict], show_scores: bool = False, partial_weight: float = 50.0) -> None:
         """Display results in three column format"""
-
-        print("\n🎬 Search Results Comparison")
-        print("=" * 80)
 
         # Create three separate tables for better formatting
         table_bm25 = PrettyTable()
-        table_rerank = PrettyTable()
         table_hybrid = PrettyTable()
+        table_rerank = PrettyTable()
 
-        # Configure columns
+        # Configure columns with descriptive titles
+        partial_label = f"⚖️ Partial ({partial_weight:.0f}%)"
         if show_scores:
-            table_bm25.field_names = ["Rank", "Movie", "Year", "Score"]
-            table_rerank.field_names = ["Rank", "Movie", "Year", "Score"]
-            table_hybrid.field_names = ["Rank", "Movie", "Year", "Score"]
+            table_bm25.field_names = ["📊 BM25 Only (0%)", "Rank", "Movie", "Score"]
+            table_hybrid.field_names = [partial_label, "Rank", "Movie", "Score"]
+            table_rerank.field_names = ["🎯 100% Rerank", "Rank", "Movie", "Score"]
         else:
-            table_bm25.field_names = ["Rank", "Movie", "Year"]
-            table_rerank.field_names = ["Rank", "Movie", "Year"]
-            table_hybrid.field_names = ["Rank", "Movie", "Year"]
+            table_bm25.field_names = ["📊 BM25 Only (0%)", "Rank", "Movie"]
+            table_hybrid.field_names = [partial_label, "Rank", "Movie"]
+            table_rerank.field_names = ["🎯 100% Rerank", "Rank", "Movie"]
 
         # Set alignment
         table_bm25.align["Movie"] = "l"
-        table_rerank.align["Movie"] = "l"
         table_hybrid.align["Movie"] = "l"
+        table_rerank.align["Movie"] = "l"
+
+        # Add header row
+        table_bm25.add_row(["", "", ""])
+        table_hybrid.add_row(["", "", ""])
+        table_rerank.add_row(["", "", ""])
 
         # Add data to tables
         for i in range(10):
@@ -207,33 +214,16 @@ class PersonalizedSearchEngine:
                 title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
                 if show_scores:
                     table_bm25.add_row([
-                        i+1, title, movie['year'],
+                        "", i+1, title,
                         f"{movie['normalized_bm25_score']:.3f}"
                     ])
                 else:
-                    table_bm25.add_row([i+1, title, movie['year']])
+                    table_bm25.add_row(["", i+1, title])
             else:
                 if show_scores:
-                    table_bm25.add_row([i+1, "", "", ""])
+                    table_bm25.add_row(["", "", "", ""])
                 else:
-                    table_bm25.add_row([i+1, "", ""])
-
-            # Rerank Only
-            if i < len(rerank_results):
-                movie = rerank_results[i]
-                title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
-                if show_scores:
-                    table_rerank.add_row([
-                        i+1, title, movie['year'],
-                        f"{movie['similarity_score']:.3f}"
-                    ])
-                else:
-                    table_rerank.add_row([i+1, title, movie['year']])
-            else:
-                if show_scores:
-                    table_rerank.add_row([i+1, "", "", ""])
-                else:
-                    table_rerank.add_row([i+1, "", ""])
+                    table_bm25.add_row(["", "", ""])
 
             # Hybrid 50/50
             if i < len(hybrid_results):
@@ -241,38 +231,53 @@ class PersonalizedSearchEngine:
                 title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
                 if show_scores:
                     table_hybrid.add_row([
-                        i+1, title, movie['year'],
+                        "", i+1, title,
                         f"{movie['combined_score']:.3f}"
                     ])
                 else:
-                    table_hybrid.add_row([i+1, title, movie['year']])
+                    table_hybrid.add_row(["", i+1, title])
             else:
                 if show_scores:
-                    table_hybrid.add_row([i+1, "", "", ""])
+                    table_hybrid.add_row(["", "", "", ""])
                 else:
-                    table_hybrid.add_row([i+1, "", ""])
+                    table_hybrid.add_row(["", "", ""])
+
+            # 100% Rerank
+            if i < len(rerank_results):
+                movie = rerank_results[i]
+                title = f"{movie['title'][:40]}{'...' if len(movie['title']) > 40 else ''}"
+                if show_scores:
+                    table_rerank.add_row([
+                        "", i+1, title,
+                        f"{movie['similarity_score']:.3f}"
+                    ])
+                else:
+                    table_rerank.add_row(["", i+1, title])
+            else:
+                if show_scores:
+                    table_rerank.add_row(["", "", "", ""])
+                else:
+                    table_rerank.add_row(["", "", ""])
+
+        print("\n🎬 Search Results Comparison")
+        print("=" * 120)
 
         # Display tables side by side
-        print("📊 BM25 Only (0%)".center(25) + "   " +
-              "🎯 100% Rerank".center(25) + "   " +
-              "⚖️  50/50 Hybrid".center(25))
-        print("-" * 80)
-
         bm25_lines = str(table_bm25).split('\n')
-        rerank_lines = str(table_rerank).split('\n')
         hybrid_lines = str(table_hybrid).split('\n')
+        rerank_lines = str(table_rerank).split('\n')
 
-        for i in range(max(len(bm25_lines), len(rerank_lines), len(hybrid_lines))):
-            bm25_line = bm25_lines[i] if i < len(bm25_lines) else " " * 25
-            rerank_line = rerank_lines[i] if i < len(rerank_lines) else " " * 25
-            hybrid_line = hybrid_lines[i] if i < len(hybrid_lines) else " " * 25
+        for i in range(max(len(bm25_lines), len(hybrid_lines), len(rerank_lines))):
+            bm25_line = bm25_lines[i] if i < len(bm25_lines) else " " * 40
+            hybrid_line = hybrid_lines[i] if i < len(hybrid_lines) else " " * 40
+            rerank_line = rerank_lines[i] if i < len(rerank_lines) else " " * 40
 
             # Pad lines to consistent width
-            bm25_line = bm25_line.ljust(25)
-            rerank_line = rerank_line.ljust(25)
-            hybrid_line = hybrid_line.ljust(25)
+            bm25_line = bm25_line.ljust(40)
+            hybrid_line = hybrid_line.ljust(40)
+            rerank_line = rerank_line.ljust(40)
 
-            print(f"{bm25_line}   {rerank_line}   {hybrid_line}")
+            print(f"{bm25_line}   {hybrid_line}   {rerank_line}")
 
     def close(self) -> None:
         """Close database connection"""
@@ -290,7 +295,8 @@ def main():
 Examples:
     python search_cli.py --query "lord" --user-id 10001
     python search_cli.py --query "king" --user-id 10002 --show-scores
-    python search_cli.py --query "ring" --user-id 20001 --show-scores
+    python search_cli.py --query "ring" --user-id 20001 --show-scores --partial-weight 25
+    python search_cli.py --query "dragon" --user-id 20002 --partial-weight 75
 
 Test Users:
   - 10001: Fantasy Lover (likes fantasy movies)
@@ -319,6 +325,13 @@ Test Users:
         help="Show similarity and BM25 scores in results"
     )
 
+    parser.add_argument(
+        "--partial-weight", "-p",
+        type=float,
+        default=50.0,
+        help="Weight for partial personalization (0-100, default: 50)"
+    )
+
     args = parser.parse_args()
 
     # Validate database configuration
@@ -331,7 +344,7 @@ Test Users:
 
     try:
         search_engine.connect()
-        search_engine.search(args.query, args.user_id, args.show_scores)
+        search_engine.search(args.query, args.user_id, args.show_scores, args.partial_weight)
 
     except KeyboardInterrupt:
         print_warning("\n⚠️  Search interrupted by user")
