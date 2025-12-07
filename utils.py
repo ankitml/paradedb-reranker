@@ -137,7 +137,6 @@ class DatabaseConnection:
         try:
             self.conn = psycopg2.connect(**self.config)
             self.conn.autocommit = False
-            print_success("✅ Connected to PostgreSQL database")
         except Exception as e:
             print_error(f"❌ Database connection failed: {e}")
             raise
@@ -146,7 +145,6 @@ class DatabaseConnection:
         """Close database connection"""
         if self.conn:
             self.conn.close()
-            print_info("🔌 Database connection closed")
 
     def execute_batch(self, query: str, data: List[Any], template: Optional[str] = None,
                       page_size: int = 1000) -> None:

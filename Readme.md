@@ -223,9 +223,46 @@ LIMIT 10;
 4. **Test with User 20001** (Extreme Fantasy Lover) - Should show maximum preference boost for fantasy movies
 5. **Test with User 20002** (Extreme Fantasy Hater) - Should show maximum penalty for fantasy movies
 
+1. "king" ⭐⭐⭐⭐⭐ (Best after "lord")
+
+  - Fantasy movies: King Kong (1933, 1976, 2005), The Scorpion King, Fisher King
+  - Non-Fantasy: King Arthur, King Ralph, King of Kings, King Solomon's Mines
+  - Good mix: 4 fantasy movies in top 15 results
+
+  2. "magic" ⭐⭐⭐⭐⭐
+
+  - Fantasy movies: Practical Magic, Strange Magic, The Magic Ring, Carnival Magic
+  - Non-Fantasy: Rough Magic, Magic Mike, Magic in the Moonlight
+  - Clear distinction: 4 fantasy vs 5 non-fantasy in results
+
+  3. "witch" ⭐⭐⭐⭐⭐
+
+  - Fantasy movies: Escape to Witch Mountain, Chronicles of Narnia, Hansel & Gretel, The Last Witch Hunter
+  - Non-Fantasy: Blair Witch Project, Halloween III, The Witch (2015)
+  - Strong contrast: Many horror movies vs fantasy
+
+  4. "dragon" ⭐⭐⭐⭐
+
+  - Fantasy movies: How to Train Your Dragon, Mummy: Tomb of the Dragon Emperor
+  - Non-Fantasy: Crouching Tiger Hidden Dragon, Enter the Dragon, Red Dragon
+  - Good variety: 2 clear fantasy vs 13 others
+
+  5. "ring" ⭐⭐⭐
+
+  - Fantasy movies: Lord of the Rings: Fellowship of the Ring, The Magic Ring
+  - Non-Fantasy: The Ring (horror), Ringu, Bling Ring
+  - Limited but clear: LOTR movies should rank very differently
+
+  Why These Keywords Work:
+
+  1. Good fantasy representation: Each has 2-5 fantasy movies in the results
+  2. Non-fantasy alternatives: Enough non-fantasy movies to see clear re-ranking
+  3. Distinct genres: Fantasy vs horror/action/drama creates clear preference signals
 ### Database Schema
 Users table now includes:
 - `user_id` (integer, primary key)
 - `created_at` (timestamp, default now())
 - `embedding` (vector(384)) - User preference embedding
 - `updated_at` (timestamp, default now()) - Last embedding update
+
+

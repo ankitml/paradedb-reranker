@@ -104,8 +104,11 @@ class PersonalizedSearchEngine:
                 normalization AS (
                     SELECT
                         *,
-                        (bm25_score - MIN(bm25_score) OVER()) /
-                            NULLIF(MAX(bm25_score) OVER() - MIN(bm25_score) OVER(), 0) as normalized_bm25
+                        CASE
+                            WHEN MAX(bm25_score) OVER() = MIN(bm25_score) OVER() THEN 0.5
+                            ELSE (bm25_score - MIN(bm25_score) OVER()) /
+                                 (MAX(bm25_score) OVER() - MIN(bm25_score) OVER())
+                        END as normalized_bm25
                     FROM first_pass_retrieval
                 ),
                 personalized_ranker AS (
@@ -149,18 +152,9 @@ class PersonalizedSearchEngine:
     def search(self, query: str, user_id: int, show_scores: bool = False, partial_weight: float = 50.0) -> None:
         """Main search method using unified SQL approach with three weight combinations"""
 
-        print(f"\n🔍 Personalized Movie Search")
-        print(f"   Query: '{query}'")
-        print(f"   User ID: {user_id}")
-        print(f"   Show Scores: {show_scores}")
-        print(f"   Partial Weight: {partial_weight}%")
-        print("=" * 80)
-
         # Validate user exists and has embedding
         if not self.validate_user(user_id):
             return
-
-        print_info("🚀 Executing unified search with three weight combinations...")
 
         # Convert percentage to decimal
         partial_decimal = partial_weight / 100.0
@@ -169,8 +163,6 @@ class PersonalizedSearchEngine:
         bm25_only = self.unified_search(query, user_id, bm25_weight=1.0, similarity_weight=0.0)
         partial = self.unified_search(query, user_id, bm25_weight=1.0-partial_decimal, similarity_weight=partial_decimal)
         rerank_only = self.unified_search(query, user_id, bm25_weight=0.0, similarity_weight=1.0)
-
-        print_info(f"   Found {len(bm25_only)} movies across all approaches")
 
         # Display results in three columns
         self.display_results(bm25_only, partial, rerank_only, show_scores, partial_weight)
@@ -185,18 +177,15 @@ class PersonalizedSearchEngine:
         except:
             terminal_width = 120  # fallback width
 
-        print("\n🎬 Search Results Comparison")
-        print("=" * terminal_width)
-
         # Calculate column widths
         separator_width = 3  # " | "
         total_content_width = terminal_width - (separator_width * 2)
         col_width = total_content_width // 3
 
         # Headers
-        bm25_header = "📊 BM25 (0%)"
-        partial_header = f"⚖️ Partial ({partial_weight:.0f}%)"
-        rerank_header = "🎯 Rerank (100%)"
+        bm25_header = f"BM25 (0%)"
+        partial_header = f"Partial ({partial_weight:.0f}%)"
+        rerank_header = "Rerank (100%)"
 
         # Adjust title length based on available space
         max_title_length = col_width - 15  # Space for "10. " and scores
