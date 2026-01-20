@@ -73,6 +73,11 @@ CREATE INDEX idx_tags_user_id ON tags(user_id);
 CREATE INDEX idx_tags_movie_id ON tags(movie_id);
 CREATE INDEX idx_tags_tag ON tags(tag);
 
+-- BM25 full-text search index (ParadeDB)
+CREATE INDEX movies_search_idx ON movies
+  USING bm25 (movie_id, title, year, imdb_id, tmdb_id, genres)
+  WITH (key_field='movie_id');
+
 -- ========================================
 -- Sample Queries for Array Operations
 -- ========================================
