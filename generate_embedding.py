@@ -16,6 +16,7 @@ import sys
 import csv
 import requests
 import json
+import argparse
 from pathlib import Path
 from tqdm import tqdm
 import time
@@ -169,23 +170,49 @@ class MovieEmbeddingGenerator:
 def main():
     """Main execution function"""
 
+    parser = argparse.ArgumentParser(description="Generate movie embeddings using OpenRouter")
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=Path("data"),
+        help="Directory containing movies.csv (default: data)"
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Output CSV path for embeddings (default: <data-dir>/embeddings.csv)"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help="Batch size for API calls (default: from EMBEDDING_BATCH_SIZE or 100)"
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of movies to process (default: all)"
+    )
+    args = parser.parse_args()
+
     # File paths
-    script_dir = Path(__file__).parent
-    sample_data_dir = script_dir / "sample_data"
-    movies_csv = sample_data_dir / "movies.csv"
-    output_csv = sample_data_dir / "embeddings.csv"
+    movies_csv = args.data_dir / "movies.csv"
+    output_csv = args.output or (args.data_dir / "embeddings.csv")
 
     # Validate OpenRouter configuration
     if not ConfigManager.validate_openrouter_config():
         sys.exit(1)
 
-    # Configuration from environment
-    batch_size = ConfigManager.get_batch_size("EMBEDDING_BATCH_SIZE", 100)
+    # Configuration from environment or command line
+    batch_size = args.batch_size or ConfigManager.get_batch_size("EMBEDDING_BATCH_SIZE", 100)
 
     print("🎬 Movie Embedding Generator")
     print("=" * 40)
     print(f"📁 Input: {movies_csv}")
     print(f"💾 Output: {output_csv}")
+    print(f"📦 Batch size: {batch_size}")
+    if args.limit:
+        print(f"🎯 Limit: {args.limit} movies")
     print()
 
     # Create generator
@@ -196,6 +223,12 @@ def main():
         print("📖 Loading movies from CSV...")
         movies = generator.load_movies(movies_csv)
         print(f"✅ Loaded {len(movies)} movies")
+
+        # Apply limit if specified
+        if args.limit:
+            movies = movies[:args.limit]
+            print(f"🎯 Limited to {len(movies)} movies")
+
         print()
 
         # Show sample of formatted texts
