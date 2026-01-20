@@ -32,54 +32,93 @@ python search_cli.py --query "king" --user-id 20001  # Fantasy lover
 python search_cli.py --query "king" --user-id 20002  # Fantasy hater
 ```
 
-## Complete Setup Guide
+## Complete Setup Guide (From Scratch)
 
-### 1. Data Ingestion (MovieLens Dataset)
+### Prerequisites
 
-```bash
-source ~/.venv/bin/activate
-python ingest_data.py --data-dir sample_data --batch-size 10000 \
-  --db-host localhost --db-port 5433 --db-user postgres
-```
+- PostgreSQL 14+ with pgvector and ParadeDB extensions
+- Python 3.8+ with virtual environment
+- OpenRouter API key (for embedding generation)
+- MovieLens dataset (provided in `data/` directory)
 
-Creates tables: `movies`, `users`, `ratings`, `tags` with 27M+ ratings.
-
-### 2. Create BM25 Search Index
-
-```sql
-CREATE INDEX movies_search_idx ON movies
-  USING bm25 (movie_id, title, year, imdb_id, tmdb_id, genres)
-  WITH (key_field='movie_id');
-```
-
-### 3. Generate Movie Content Embeddings
+### 1. Install Python Dependencies
 
 ```bash
-# Requires OPENROUTER_API_KEY environment variable
-python generate_embedding.py --model sentence-transformers/all-minilm-l12-v2 \
-  --batch-size 100 --limit 1000
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Creates: movie_embeddings.csv
+# Install dependencies
+pip install psycopg2-binary tqdm python-dotenv requests
 ```
 
-### 4. Store Movie Embeddings
+### 2. Configure Environment
 
 ```bash
-python ingest_embeddings.py --csv-file movie_embeddings.csv \
-  --batch-size 1000 --table-name movies
+# Copy example .env file
+cp .env.example .env
+
+# Edit .env with your credentials
+# Set DB_PASSWORD and OPENROUTER_API_KEY
+```
+
+### 3. Create Database Schema
+
+```bash
+# Create database if needed
+psql -h localhost -p 5433 -U postgres -c "CREATE DATABASE movie;"
+
+# Run schema with extensions
+psql -h localhost -p 5433 -U vscode -d movie -f data/datamodel.sql
+```
+
+This installs:
+- `vector` extension (pgvector) for 384-dim embeddings
+- `pg_search` extension (ParadeDB) for BM25 search
+- Tables: `movies`, `users`, `ratings`, `tags`
+- Vector columns: `content_embedding` on movies, `embedding` on users
+
+### 4. Data Ingestion (MovieLens Dataset)
+
+```bash
+python ingest_data.py --data-dir data --batch-size 10000
+```
+
+Creates tables: `movies`, `users`, `ratings`, `tags` with 100,836 ratings.
+
+### 5. Generate Movie Content Embeddings
+
+```bash
+# Test with 100 movies (recommended for testing)
+python generate_embedding.py --data-dir data --limit 100 --batch-size 100
+
+# Generate for all movies (9,742 movies, ~10-15 minutes)
+python generate_embedding.py --data-dir data --batch-size 100
+```
+
+Creates `data/embeddings.csv` with 384-dimensional vectors for each movie.
+
+**Requires:** `OPENROUTER_API_KEY` in `.env` file.
+
+### 6. Store Movie Embeddings
+
+```bash
+python ingest_embeddings.py --batch-size 1000
 ```
 
 Updates `movies` table with `content_embedding` vector(384) column.
 
-### 5. Generate User Preference Embeddings
+### 7. Generate User Preference Embeddings
 
 ```bash
-# Generate for all users
+# Generate for all users (610 users)
 python generate_user_embeddings.py
 
 # Or generate for specific test users
 python generate_user_embeddings.py --user-ids 10001 10002 20001 20002
 ```
+
+Updates `users` table with `embedding` vector(384) column based on collaborative filtering.
 
 #### How User Embeddings Are Calculated
 
@@ -143,9 +182,89 @@ The directional approach was chosen for its:
 - Ability to create opposite embeddings for opposite users
 - No training required
 
-### 6. Run Personalized Search
+### 8. Create BM25 Search Index
+
+```sql
+psql -h localhost -p 5433 -U vscode -d movie -c "
+CREATE INDEX movies_search_idx ON movies
+  USING bm25 (movie_id, title, year, imdb_id, tmdb_id, genres)
+  WITH (key_field='movie_id');
+"
+```
+
+Enables ParadeDB BM25 full-text search on movie data.
+
+#### How User Embeddings Are Calculated
+
+**Directional Vector Approach (Current Implementation):**
+```
+user_embedding = Σ(positive_ratings) - Σ(negative_ratings)
+
+For each movie rating:
+- Rating ≥ 4.0: user_embedding += movie_embedding × (rating - 3.0)
+- Rating < 3.0: user_embedding -= movie_embedding × (3.0 - rating)
+```
+
+**Logic:**
+- **Positive signals** (ratings 4-5) add the movie's characteristics to user's preference vector
+- **Negative signals** (ratings 1-2) subtract the movie's characteristics
+- **Neutral rating** (3.0) has no effect
+- **Weighting**: Higher ratings have stronger influence (5.0 adds 2×, 4.0 adds 1×)
+
+**Example:**
+- User rates "Lord of the Rings" 5.0 → +2 × fantasy_vector
+- User rates "The Conjuring" 1.0 → -2 × horror_vector
+- Result: User preference leans toward fantasy, away from horror
+
+#### Alternative Approaches
+
+**1. Weighted Average (Traditional):**
+```sql
+user_embedding = Σ(rating × movie_embedding) / Σ(rating)
+```
+- *Pro*: Simple, stable
+- *Con*: Loses preference direction, all users with similar taste patterns get similar embeddings
+
+**2. TF-IDF Weighting:**
+```sql
+weight = (user_rating / avg_movie_rating) × log(total_users / users_who_rated)
+user_embedding = Σ(weight × movie_embedding)
+```
+- *Pro*: Accounts for rating rarity
+- *Con*: More complex, requires global statistics
+
+**3. Neural Network Two-Tower:**
+```
+User Tower: [user_features, rating_history] → 384-dim embedding
+Movie Tower: [movie_features, content] → 384-dim embedding
+Trained with: score = dot_product(user_embedding, movie_embedding)
+```
+- *Pro*: Learns complex patterns
+- *Con*: Requires training data, more infrastructure
+
+**4. Matrix Factorization (SVD):**
+```
+Decompose rating_matrix = U × S × V^T
+U contains user embeddings, V contains movie embeddings
+```
+- *Pro*: Proven recommendation technique
+- *Con*: Cold start problem, requires dense rating matrix
+
+The directional approach was chosen for its:
+- Simplicity (single SQL operation)
+- Clear interpretability
+- Ability to create opposite embeddings for opposite users
+- No training required
+
+### 9. Run Personalized Search
 
 ```bash
+# Fantasy lover
+python search_cli.py --query "lord" --user-id 20001
+
+# Fantasy hater
+python search_cli.py --query "lord" --user-id 20002
+
 # Compare BM25 vs Personalized re-ranking
 python search_cli.py --query "lord" --user-id 10001 --show-scores
 

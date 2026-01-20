@@ -14,6 +14,7 @@ Requirements:
 
 import os
 import sys
+import argparse
 from pathlib import Path
 from tqdm import tqdm
 from typing import List, Dict, Any
@@ -176,24 +177,34 @@ class EmbeddingIngester:
 def main():
     """Main execution function"""
 
-    # File paths
-    script_dir = Path(__file__).parent
-    sample_data_dir = script_dir / "sample_data"
-    embeddings_csv = sample_data_dir / "embeddings.csv"
+    parser = argparse.ArgumentParser(description="Ingest movie embeddings into PostgreSQL")
+    parser.add_argument(
+        "--csv-file",
+        type=Path,
+        default=Path("data/embeddings.csv"),
+        help="Path to embeddings CSV file (default: data/embeddings.csv)"
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1000,
+        help="Batch size for ingestion (default: 1000)"
+    )
+    args = parser.parse_args()
+
+    embeddings_csv = args.csv_file
+    batch_size = args.batch_size
 
     # Validate files and configuration
     FileUtils.validate_file_exists(embeddings_csv, "Embeddings CSV file")
 
-    if not ConfigManager.validate_config():
+    db_config = ConfigManager.get_db_config()
+    if not ConfigManager.validate_config(db_config):
         sys.exit(1)
-
-    # Configuration from environment
-    batch_size = ConfigManager.get_batch_size("EMBEDDING_BATCH_SIZE", 1000)
 
     print_data("📦 Movie Embeddings Ingestion")
     print("=" * 40)
     print_data(f"📁 Input: {embeddings_csv}")
-    db_config = ConfigManager.get_db_config()
     print_data(f"🗄️  Database: {db_config['host']}:{db_config['port']}/{db_config['database']}")
     print()
 

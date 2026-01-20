@@ -4,6 +4,10 @@
 -- Simplified schema using arrays and composite keys
 -- No views, minimal surrogate keys for efficiency
 
+-- Install required extensions
+CREATE EXTENSION IF NOT EXISTS vector;  -- pgvector for embeddings
+CREATE EXTENSION IF NOT EXISTS pg_search;  -- ParadeDB for BM25 search
+
 -- Drop existing tables if they exist
 DROP TABLE IF EXISTS tags CASCADE;
 DROP TABLE IF EXISTS ratings CASCADE;
@@ -18,13 +22,16 @@ CREATE TABLE movies (
     genres TEXT[],                    -- PostgreSQL array of genres
     imdb_id VARCHAR(20),
     tmdb_id INTEGER,
+    content_embedding vector(384),    -- Movie content vector (384-dim from all-MiniLM-L12-v2)
     created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Users table
 CREATE TABLE users (
     user_id INTEGER PRIMARY KEY,      -- MovieLens user IDs
-    created_at TIMESTAMP DEFAULT NOW()
+    embedding vector(384),           -- User preference vector (384-dim)
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Ratings table with composite key (no surrogate key)

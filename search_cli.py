@@ -74,7 +74,7 @@ class PersonalizedSearchEngine:
                      similarity_weight: float, limit: int = 10) -> List[Dict[str, Any]]:
         """Unified search using single SQL query with parameterized weights
 
-        Executes the complete search pipeline in one query:
+        Executes complete search pipeline in one query:
         1. first_pass_retrieval - BM25 candidate generation
         2. normalization - BM25 score normalization
         3. personalized_ranker - Vector similarity calculation
@@ -90,6 +90,8 @@ class PersonalizedSearchEngine:
         Returns:
             List of movies with all scores calculated
         """
+        # Prefix query with title: for better BM25 search
+        formatted_query = f"title:{query}"
         try:
             results = self.db.execute_query("""
                 WITH first_pass_retrieval AS (
@@ -129,7 +131,7 @@ class PersonalizedSearchEngine:
                 )
                 SELECT * FROM joint_ranker
                 ORDER BY combined_score DESC
-            """, (query, limit, user_id, bm25_weight, similarity_weight))
+            """, (formatted_query, limit, user_id, bm25_weight, similarity_weight))
 
             # Convert to list of dictionaries
             return [
