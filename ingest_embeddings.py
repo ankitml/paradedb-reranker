@@ -76,7 +76,7 @@ class EmbeddingIngester:
                     ]
 
                     # Create temporary table for batch updates
-                    self.db.execute_query("""
+                    self.db.execute_no_response("""
                         CREATE TEMP TABLE temp_embeddings (
                             movie_id INTEGER,
                             content_embedding vector(384)
@@ -95,12 +95,12 @@ class EmbeddingIngester:
                     )
 
                     # Update movies table from temp table
-                    self.db.execute_query("""
+                    self.db.execute_update("""
                         UPDATE movies m
                         SET content_embedding = t.content_embedding
                         FROM temp_embeddings t
                         WHERE m.movie_id = t.movie_id
-                    """)
+                    """, commit=False)
 
                     self.db.commit()
 

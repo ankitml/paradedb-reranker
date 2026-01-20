@@ -44,7 +44,7 @@ class ConfigManager:
             "port": int(os.getenv("DB_PORT", "5433")),
             "database": os.getenv("DB_NAME", "postgres"),
             "user": os.getenv("DB_USER", "postgres"),
-            "password": os.getenv("DB_PASSWORD") or os.getenv("PGPASSWORD")
+            "password": os.getenv("DB_PASSWORD", ""),
         }
 
     @staticmethod
@@ -60,13 +60,7 @@ class ConfigManager:
         Raises:
             ValueError: If configuration is invalid
         """
-        if not config.get("password"):
-            print_error("❌ Database password not configured!")
-            print_info("💡 Set DB_PASSWORD or PGPASSWORD environment variable")
-            print_info("📝 Example: export DB_PASSWORD='your-password-here'")
-            return False
-
-        required_fields = ["host", "port", "database", "user", "password"]
+        required_fields = ["host", "port", "database", "user"]
         for field in required_fields:
             if not config.get(field):
                 print_error(f"❌ Missing required configuration: {field}")
@@ -226,6 +220,26 @@ class DatabaseConnection:
             print_error(f"❌ Update execution failed: {e}")
             if commit:
                 self.conn.rollback()
+            raise
+
+    def execute_no_response(self, query: str, params: Optional[tuple] = None) -> None:
+        """Execute a SQL query without expecting results (CREATE, DROP, etc.)
+
+        Args:
+            query: SQL query to execute
+            params: Optional query parameters
+        """
+        if not self.conn:
+            raise RuntimeError("Database connection not established")
+
+        try:
+            with self.conn.cursor() as cursor:
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+        except Exception as e:
+            print_error(f"❌ Query execution failed: {e}")
             raise
 
     def commit(self) -> None:

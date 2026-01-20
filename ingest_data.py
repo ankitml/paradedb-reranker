@@ -115,7 +115,7 @@ class MovieLensIngester:
             ) ON COMMIT DROP;
             """
 
-            self.db.execute_query(create_temp_table)
+            self.db.execute_no_response(create_temp_table)
 
             # Copy batch to temp table
             self.db.execute_batch(
@@ -141,7 +141,7 @@ class MovieLensIngester:
                 created_at = movies.created_at  -- Preserve original created_at
             """
 
-            self.db.execute_query(merge_query)
+            self.db.execute_update(merge_query, commit=False)
             self.db.commit()
 
         except Exception as e:
