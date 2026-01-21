@@ -36,15 +36,17 @@ class ConfigManager:
     def get_db_config() -> Dict[str, str]:
         """Get database configuration from environment variables
 
+        Uses standard PostgreSQL environment variables (PGHOST, PGPORT, etc.)
+
         Returns:
             Dict with database connection parameters
         """
         return {
-            "host": os.getenv("DB_HOST", "localhost"),
-            "port": int(os.getenv("DB_PORT", "5433")),
-            "database": os.getenv("DB_NAME", "postgres"),
-            "user": os.getenv("DB_USER", "postgres"),
-            "password": os.getenv("DB_PASSWORD", ""),
+            "host": os.getenv("PGHOST", "localhost"),
+            "port": int(os.getenv("PGPORT", "5432")),
+            "database": os.getenv("PGDATABASE", "movie"),
+            "user": os.getenv("PGUSER", "postgres"),
+            "password": os.getenv("PGPASSWORD", ""),
         }
 
     @staticmethod
