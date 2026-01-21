@@ -8,10 +8,6 @@ Hybrid search combining BM25 keyword search with user preference embeddings. Sam
 ## Quick Start
 
 ```bash
-# Database connection
-kubectl port-forward svc/paradedb-rw 5433:5432 -n ankit31-paradedb
-export PGPASSWORD="<password>"
-
 # Test personalized search
 python search_cli.py --query "king" --user-id 20001  # Fantasy lover
 python search_cli.py --query "king" --user-id 20002  # Fantasy hater
