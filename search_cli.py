@@ -71,11 +71,12 @@ class PersonalizedSearchEngine:
   
     
     def unified_search(self, query: str, user_id: int, bm25_weight: float,
-                     similarity_weight: float, limit: int = 10) -> List[Dict[str, Any]]:
+                     similarity_weight: float, limit: int = 10, 
+                     recall_limit: int = 100) -> List[Dict[str, Any]]:
         """Unified search using single SQL query with parameterized weights
 
         Executes complete search pipeline in one query:
-        1. first_pass_retrieval - BM25 candidate generation
+        1. first_pass_retrieval - BM25 candidate generation (retrieves recall_limit results)
         2. normalization - BM25 score normalization
         3. personalized_ranker - Vector similarity calculation
         4. joint_ranker - Final weighted combination
@@ -86,6 +87,7 @@ class PersonalizedSearchEngine:
             bm25_weight: Weight for BM25 scores (0.0 to 1.0)
             similarity_weight: Weight for similarity scores (0.0 to 1.0)
             limit: Number of results to return
+            recall_limit: Number of candidates to retrieve for re-ranking
 
         Returns:
             List of movies with all scores calculated
@@ -131,7 +133,8 @@ class PersonalizedSearchEngine:
                 )
                 SELECT * FROM joint_ranker
                 ORDER BY combined_score DESC
-            """, (formatted_query, limit, user_id, bm25_weight, similarity_weight))
+                LIMIT %s
+            """, (formatted_query, recall_limit, user_id, bm25_weight, similarity_weight, limit))
 
             # Convert to list of dictionaries
             return [
@@ -151,7 +154,8 @@ class PersonalizedSearchEngine:
             print_error(f"Unified search failed: {e}")
             raise
 
-    def search(self, query: str, user_id: int, show_scores: bool = False, partial_weight: float = 50.0) -> None:
+    def search(self, query: str, user_id: int, show_scores: bool = False, 
+               partial_weight: float = 50.0, recall_limit: int = 100) -> None:
         """Main search method using unified SQL approach with three weight combinations"""
 
         # Validate user exists and has embedding
@@ -162,9 +166,12 @@ class PersonalizedSearchEngine:
         partial_decimal = partial_weight / 100.0
 
         # Generate results for all three approaches using the unified query
-        bm25_only = self.unified_search(query, user_id, bm25_weight=1.0, similarity_weight=0.0)
-        partial = self.unified_search(query, user_id, bm25_weight=1.0-partial_decimal, similarity_weight=partial_decimal)
-        rerank_only = self.unified_search(query, user_id, bm25_weight=0.0, similarity_weight=1.0)
+        bm25_only = self.unified_search(query, user_id, bm25_weight=1.0, similarity_weight=0.0, 
+                                         recall_limit=recall_limit)
+        partial = self.unified_search(query, user_id, bm25_weight=1.0-partial_decimal, 
+                                      similarity_weight=partial_decimal, recall_limit=recall_limit)
+        rerank_only = self.unified_search(query, user_id, bm25_weight=0.0, similarity_weight=1.0, 
+                                          recall_limit=recall_limit)
 
         # Display results in three columns
         self.display_results(bm25_only, partial, rerank_only, show_scores, partial_weight)
@@ -300,6 +307,13 @@ Test Users:
         help="Weight for partial personalization (0-100, default: 50)"
     )
 
+    parser.add_argument(
+        "--recall-limit", "-r",
+        type=int,
+        default=100,
+        help="Number of BM25 candidates to retrieve for re-ranking (default: 100)"
+    )
+
     args = parser.parse_args()
 
     # Validate database configuration
@@ -312,7 +326,7 @@ Test Users:
 
     try:
         search_engine.connect()
-        search_engine.search(args.query, args.user_id, args.show_scores, args.partial_weight)
+        search_engine.search(args.query, args.user_id, args.show_scores, args.partial_weight, args.recall_limit)
 
     except KeyboardInterrupt:
         print_warning("\n⚠️  Search interrupted by user")
