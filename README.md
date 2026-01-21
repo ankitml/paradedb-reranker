@@ -30,8 +30,9 @@ cp .env.example .env
 
 ### 3. Create Database Schema
 
+Ensure the database specified in `PGDATABASE` exists, then run:
+
 ```bash
-psql -c "CREATE DATABASE movie;"
 psql -f data/datamodel.sql
 ```
 
