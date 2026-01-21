@@ -5,14 +5,6 @@ Hybrid search combining BM25 keyword search with user preference embeddings. Sam
 <img width="1710" alt="Fantasy hater search" src="https://github.com/user-attachments/assets/e9a5a5da-3682-479d-b7c2-5ba0b19e065e" />
 <img width="1654" alt="Fantasy lover search" src="https://github.com/user-attachments/assets/bfa1b106-e313-4d90-acc0-de8c2825a040" />
 
-## Quick Start
-
-```bash
-# Test personalized search
-python search_cli.py --query "king" --user-id 20001  # Fantasy lover
-python search_cli.py --query "king" --user-id 20002  # Fantasy hater
-```
-
 ## Setup Guide
 
 ### Prerequisites
@@ -26,21 +18,21 @@ python search_cli.py --query "king" --user-id 20002  # Fantasy hater
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install psycopg2-binary tqdm python-dotenv requests
+pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment
 
 ```bash
 cp .env.example .env
-# Set DB_PASSWORD and OPENROUTER_API_KEY
+# Set PGPASSWORD and OPENROUTER_API_KEY
 ```
 
 ### 3. Create Database Schema
 
 ```bash
-psql -h localhost -p 5433 -U postgres -c "CREATE DATABASE movie;"
-psql -h localhost -p 5433 -U vscode -d movie -f data/datamodel.sql
+psql -c "CREATE DATABASE movie;"
+psql -f data/datamodel.sql
 ```
 
 ### 4. Ingest MovieLens Data
@@ -66,7 +58,7 @@ python ingest_embeddings.py --batch-size 1000
 ### 7. Create Test Users
 
 ```bash
-psql -h localhost -p 5433 -U vscode -d movie -f data/test_users.sql
+psql -f data/test_users.sql
 ```
 
 | User ID | Type | Description |
